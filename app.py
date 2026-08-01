@@ -18,7 +18,8 @@ async def upload_file(file : UploadFile):
         "num_names": df.columns.tolist(),
         "is_null": df.isnull().sum().to_dict(),
         "duplicated_rows": int(df.duplicated().sum()),
-        "describe": df.describe().to_dist()
+        "describe": df.describe().fillna("N/A").to_dict(),
+        "correlation": df.corr(numeric_only=True).fillna("N/A").to_dict()
     }
     else :
        return {"error":"Please upload csv file"}

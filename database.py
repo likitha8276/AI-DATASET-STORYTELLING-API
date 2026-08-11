@@ -1,5 +1,5 @@
 import os
-
+from sqlalchemy import JSON
 from dotenv import load_dotenv
 from sqlalchemy import (
     create_engine,
@@ -55,6 +55,7 @@ class UploadHistory(Base):
     num_rows = Column(Integer)
     num_columns = Column(Integer)
     fallback_summary = Column(String)
+    analysis_data = Column(JSON,nullable=True)
     uploaded_at = Column(
         DateTime,
         default=lambda: datetime.now(timezone.utc)

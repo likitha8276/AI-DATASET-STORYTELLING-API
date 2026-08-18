@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
 from google import genai
+
 from fastapi import FastAPI, UploadFile, HTTPException, Depends
 from pydantic import BaseModel
 from fastapi.security import OAuth2PasswordRequestForm
@@ -98,6 +99,7 @@ def compute_correlation_summary(df: pd.DataFrame):
 
     return corr.fillna("N/A").to_dict(), summary
 
+
 def compute_categorical_summary(df: pd.DataFrame):
     """Summarize categorical columns for dataset storytelling."""
 
@@ -113,16 +115,19 @@ def compute_categorical_summary(df: pd.DataFrame):
 
         summary[col] = {
             "unique_values": int(categorical_df[col].nunique()),
+
             "top_value": (
                 value_counts.index[0]
                 if not value_counts.empty
                 else None
             ),
+
             "top_value_count": (
                 int(value_counts.iloc[0])
                 if not value_counts.empty
                 else 0
             ),
+
             "distribution": {
                 str(key): int(value)
                 for key, value in value_counts.items()
@@ -130,6 +135,8 @@ def compute_categorical_summary(df: pd.DataFrame):
         }
 
     return summary
+
+
 def detect_anomalies(df: pd.DataFrame):
     """Detect unusual rows using Isolation Forest."""
 
@@ -192,7 +199,9 @@ def generate_ai_narrative(
         api_key = os.getenv("GEMINI_API_KEY")
 
         if not api_key:
-            raise ValueError("GEMINI_API_KEY is not configured.")
+            raise ValueError(
+                "GEMINI_API_KEY is not configured."
+            )
 
         prompt = f"""
 You are a data analyst.
@@ -353,14 +362,18 @@ async def upload_file(
     corr_dict, corr_summary = compute_correlation_summary(
         cleaned_df
     )
-    categorical_summary = compute_categorical_summary(cleaned_df)
 
-    # 4. Anomaly detection
+    # 4. Categorical analysis
+    categorical_summary = compute_categorical_summary(
+        cleaned_df
+    )
+
+    # 5. Anomaly detection
     anomaly_data = detect_anomalies(
         cleaned_df
     )
 
-    # 5. AI narrative
+    # 6. AI narrative
     ai_narrative, used_fallback = generate_ai_narrative(
         cleaned_df,
         cleaning_report,
@@ -368,18 +381,21 @@ async def upload_file(
         anomaly_data,
     )
 
-    # 6. Save analysis
+    # 7. Save analysis
     history_entry = UploadHistory(
         filename=file.filename,
         num_rows=cleaned_df.shape[0],
         num_columns=cleaned_df.shape[1],
         fallback_summary=corr_summary,
+
         analysis_data={
             "describe": describe_dict,
             "correlation": corr_dict,
             "cleaning_report": cleaning_report,
+            "categorical_summary": categorical_summary,
             "anomalies": anomaly_data,
         },
+
         user_id=current_user.id,
     )
 
@@ -387,20 +403,30 @@ async def upload_file(
     db.commit()
     db.refresh(history_entry)
 
-    # 7. Return response
+    # 8. Return response
     return {
         "file_name": file.filename,
         "size_bytes": len(contents),
         "num_rows": cleaned_df.shape[0],
         "num_columns": cleaned_df.shape[1],
         "column_names": cleaned_df.columns.tolist(),
+
         "cleaning_report": cleaning_report,
+
         "describe": describe_dict,
+
         "correlation": corr_dict,
+
+        "categorical_summary": categorical_summary,
+
         "fallback_summary": corr_summary,
+
         "anomalies": anomaly_data,
+
         "ai_narrative": ai_narrative,
+
         "used_fallback": used_fallback,
+
         "history_id": history_entry.id,
     }
 
@@ -465,23 +491,34 @@ def ask_question(
     prompt = f"""
 You are a data analyst answering a user's question about a dataset.
 
-Use ONLY the structured analysis provided below.
-Do not invent values or information.
+Use ONLY the structured dataset analysis provided below.
 
-If the analysis does not contain enough information
-to answer the question, say that the available analysis
-is not sufficient.
+Rules:
 
-Structured dataset analysis:
+- Do not invent numbers, categories, or facts.
+- Use the statistics, correlations, categorical summaries,
+  and anomaly information when relevant.
+- If the available analysis is not sufficient to answer the question,
+  clearly say so.
+- Give a short, clear answer for a non-technical reader.
+- If the question asks about categories, use categorical_summary.
+- If the question asks about unusual or abnormal records, use anomalies.
+- If the question asks about averages, minimums, maximums,
+  or distributions, use describe.
+- If the question asks about relationships between numeric columns,
+  use correlation.
+
+STRUCTURED DATASET ANALYSIS:
+
 {analysis}
 
-User question:
-{request.question}
+USER QUESTION:
 
-Give a short, clear answer for a non-technical reader.
+{request.question}
 """
 
     try:
+
         api_key = os.getenv("GEMINI_API_KEY")
 
         if not api_key:

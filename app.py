@@ -65,7 +65,6 @@ def clean_dataset(df: pd.DataFrame):
 
 
 def compute_correlation_summary(df: pd.DataFrame):
-
     numeric_df = df.select_dtypes(include=np.number)
 
     if numeric_df.shape[1] < 2:
@@ -99,7 +98,38 @@ def compute_correlation_summary(df: pd.DataFrame):
 
     return corr.fillna("N/A").to_dict(), summary
 
+def compute_categorical_summary(df: pd.DataFrame):
+    """Summarize categorical columns for dataset storytelling."""
 
+    categorical_df = df.select_dtypes(
+        include=["object", "category", "bool"]
+    )
+
+    summary = {}
+
+    for col in categorical_df.columns:
+
+        value_counts = categorical_df[col].value_counts()
+
+        summary[col] = {
+            "unique_values": int(categorical_df[col].nunique()),
+            "top_value": (
+                value_counts.index[0]
+                if not value_counts.empty
+                else None
+            ),
+            "top_value_count": (
+                int(value_counts.iloc[0])
+                if not value_counts.empty
+                else 0
+            ),
+            "distribution": {
+                str(key): int(value)
+                for key, value in value_counts.items()
+            },
+        }
+
+    return summary
 def detect_anomalies(df: pd.DataFrame):
     """Detect unusual rows using Isolation Forest."""
 
@@ -323,6 +353,7 @@ async def upload_file(
     corr_dict, corr_summary = compute_correlation_summary(
         cleaned_df
     )
+    categorical_summary = compute_categorical_summary(cleaned_df)
 
     # 4. Anomaly detection
     anomaly_data = detect_anomalies(

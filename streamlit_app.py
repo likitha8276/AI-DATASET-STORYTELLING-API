@@ -596,7 +596,7 @@ if correlation:
 
         st.dataframe(
             correlation_df,
-            use_container_width=True,
+            use_container_width="strech",
             hide_index=True
         )
 
@@ -870,7 +870,7 @@ if group_analysis:
 
                 st.dataframe(
                     pd.DataFrame(rows),
-                    use_container_width=True,
+                    use_container_width="strech",
                     hide_index=True
                 )
 
@@ -899,7 +899,7 @@ if describe_data:
 
         st.dataframe(
             describe_df,
-            use_container_width=True
+            use_container_width="strech"
         )
 
     except Exception:

@@ -25,8 +25,17 @@ st.set_page_config(
 # SESSION STATE
 # ============================================================
 
+if "logged_in" not in st.session_state:
+    st.session_state["logged_in"] = False
+
+if "token" not in st.session_state:
+    st.session_state["token"] = None
+
 if "result" not in st.session_state:
     st.session_state["result"] = None
+
+if "user_email" not in st.session_state:
+    st.session_state["user_email"] = None
 
 
 # ============================================================
@@ -38,6 +47,271 @@ st.title("📊 AI Dataset Storyteller")
 st.caption(
     "Upload a dataset and let AI turn it into an understandable story."
 )
+
+
+# ============================================================
+# SIDEBAR ACCOUNT
+# ============================================================
+
+st.sidebar.header("🔐 Account")
+
+
+# ============================================================
+# NOT LOGGED IN
+# ============================================================
+
+if not st.session_state["logged_in"]:
+
+    account_mode = st.sidebar.radio(
+        "Choose an option",
+        ["Login", "Sign Up"]
+    )
+
+
+    # ========================================================
+    # LOGIN
+    # ========================================================
+
+    if account_mode == "Login":
+
+        st.sidebar.subheader("Login")
+
+        email = st.sidebar.text_input(
+            "Email",
+            key="login_email"
+        )
+
+        password = st.sidebar.text_input(
+            "Password",
+            type="password",
+            key="login_password"
+        )
+
+        if st.sidebar.button(
+            "Login",
+            type="primary"
+        ):
+
+            if not email or not password:
+
+                st.sidebar.warning(
+                    "Please enter your email and password."
+                )
+
+            else:
+
+                try:
+
+                    response = requests.post(
+                        f"{API_URL}/login",
+                        data={
+                            "username": email,
+                            "password": password
+                        },
+                        timeout=30
+                    )
+
+                    if response.status_code == 200:
+
+                        data = response.json()
+
+                        st.session_state["token"] = (
+                            data["access_token"]
+                        )
+
+                        st.session_state["logged_in"] = True
+
+                        st.session_state["user_email"] = email
+
+                        st.sidebar.success(
+                            "Login successful!"
+                        )
+
+                        st.rerun()
+
+                    else:
+
+                        try:
+
+                            error_detail = response.json().get(
+                                "detail",
+                                "Incorrect email or password."
+                            )
+
+                        except Exception:
+
+                            error_detail = (
+                                "Incorrect email or password."
+                            )
+
+                        st.sidebar.error(
+                            error_detail
+                        )
+
+                except requests.exceptions.ConnectionError:
+
+                    st.sidebar.error(
+                        "Could not connect to FastAPI."
+                    )
+
+                except requests.exceptions.Timeout:
+
+                    st.sidebar.error(
+                        "Backend request timed out."
+                    )
+
+                except Exception as e:
+
+                    st.sidebar.error(
+                        f"Login failed: {e}"
+                    )
+
+
+    # ========================================================
+    # SIGN UP
+    # ========================================================
+
+    else:
+
+        st.sidebar.subheader("Create Account")
+
+        signup_email = st.sidebar.text_input(
+            "Email",
+            key="signup_email"
+        )
+
+        signup_password = st.sidebar.text_input(
+            "Password",
+            type="password",
+            key="signup_password"
+        )
+
+        confirm_password = st.sidebar.text_input(
+            "Confirm Password",
+            type="password",
+            key="confirm_password"
+        )
+
+        if st.sidebar.button(
+            "Create Account",
+            type="primary"
+        ):
+
+            if not signup_email or not signup_password:
+
+                st.sidebar.warning(
+                    "Please enter your email and password."
+                )
+
+            elif signup_password != confirm_password:
+
+                st.sidebar.error(
+                    "Passwords do not match."
+                )
+
+            elif len(signup_password) < 6:
+
+                st.sidebar.error(
+                    "Password must contain at least 6 characters."
+                )
+
+            else:
+
+                try:
+
+                    response = requests.post(
+                        f"{API_URL}/signup",
+                        params={
+                            "email": signup_email,
+                            "password": signup_password
+                        },
+                        timeout=30
+                    )
+
+                    if response.status_code == 201:
+
+                        st.sidebar.success(
+                            "Account created successfully!"
+                        )
+
+                        st.sidebar.info(
+                            "Now switch to Login."
+                        )
+
+                    else:
+
+                        try:
+
+                            error_detail = response.json().get(
+                                "detail",
+                                "Signup failed."
+                            )
+
+                        except Exception:
+
+                            error_detail = "Signup failed."
+
+                        st.sidebar.error(
+                            error_detail
+                        )
+
+                except requests.exceptions.ConnectionError:
+
+                    st.sidebar.error(
+                        "Could not connect to FastAPI."
+                    )
+
+                except requests.exceptions.Timeout:
+
+                    st.sidebar.error(
+                        "Backend request timed out."
+                    )
+
+                except Exception as e:
+
+                    st.sidebar.error(
+                        f"Signup failed: {e}"
+                    )
+
+
+# ============================================================
+# LOGGED IN
+# ============================================================
+
+if st.session_state["logged_in"]:
+
+    st.sidebar.success(
+        f"Logged in as {st.session_state['user_email']}"
+    )
+
+    if st.sidebar.button("Logout"):
+
+        st.session_state["logged_in"] = False
+
+        st.session_state["token"] = None
+
+        st.session_state["user_email"] = None
+
+        st.session_state["result"] = None
+
+        st.rerun()
+
+
+# ============================================================
+# LOGIN REQUIRED
+# ============================================================
+
+if not st.session_state["logged_in"]:
+
+    st.info(
+        "👈 Login or create an account from the sidebar "
+        "to analyze a dataset."
+    )
+
+    st.stop()
+
+
+st.success("You are logged in.")
 
 
 # ============================================================
@@ -65,6 +339,12 @@ if uploaded_file is not None:
         type="primary"
     ):
 
+        token = st.session_state["token"]
+
+        headers = {
+            "Authorization": f"Bearer {token}"
+        }
+
         files = {
             "file": (
                 uploaded_file.name,
@@ -81,6 +361,7 @@ if uploaded_file is not None:
 
                 response = requests.post(
                     f"{API_URL}/upload",
+                    headers=headers,
                     files=files,
                     timeout=120
                 )
@@ -104,8 +385,7 @@ if uploaded_file is not None:
         except requests.exceptions.ConnectionError:
 
             st.error(
-                "Could not connect to FastAPI. "
-                "Check your backend URL."
+                "Could not connect to FastAPI."
             )
 
         except requests.exceptions.Timeout:
@@ -125,9 +405,7 @@ if uploaded_file is not None:
 # GET RESULT
 # ============================================================
 
-result = st.session_state.get(
-    "result"
-)
+result = st.session_state.get("result")
 
 
 if result is None:
@@ -141,7 +419,7 @@ if result is None:
 
 
 # ============================================================
-# EXTRACT RESULTS
+# BASIC DATA
 # ============================================================
 
 num_rows = result.get(
@@ -299,7 +577,7 @@ with col4:
 
 
 # ============================================================
-# COLUMNS
+# COLUMN INFORMATION
 # ============================================================
 
 if column_names:
@@ -492,60 +770,59 @@ if correlation:
         )
 
 
-        # ----------------------------------------------------
-        # CORRELATION CHART
-        # ----------------------------------------------------
+        if len(final_correlations) > 0:
 
-        chart_df = correlation_df.head(
-            min(
-                10,
-                len(correlation_df)
+            chart_df = correlation_df.head(
+                min(
+                    10,
+                    len(correlation_df)
+                )
+            ).copy()
+
+            chart_df["Relationship"] = (
+                chart_df["Variable 1"]
+                + " ↔ "
+                + chart_df["Variable 2"]
             )
-        ).copy()
 
-        chart_df["Relationship"] = (
-            chart_df["Variable 1"]
-            + " ↔ "
-            + chart_df["Variable 2"]
-        )
+            chart_df = chart_df.sort_values(
+                "Correlation"
+            )
 
-        chart_df = chart_df.sort_values(
-            "Correlation"
-        )
+            fig, ax = plt.subplots(
+                figsize=(9, 5)
+            )
 
-        fig, ax = plt.subplots(
-            figsize=(9, 5)
-        )
+            ax.barh(
+                chart_df["Relationship"],
+                chart_df["Correlation"]
+            )
 
-        ax.barh(
-            chart_df["Relationship"],
-            chart_df["Correlation"]
-        )
+            ax.set_xlabel(
+                "Correlation"
+            )
 
-        ax.set_xlabel(
-            "Correlation"
-        )
+            ax.set_title(
+                "Strongest Variable Relationships"
+            )
 
-        ax.set_title(
-            "Strongest Variable Relationships"
-        )
+            ax.axvline(
+                0
+            )
 
-        ax.axvline(
-            0
-        )
+            plt.tight_layout()
 
-        plt.tight_layout()
+            st.pyplot(
+                fig
+            )
 
-        st.pyplot(
-            fig
-        )
-
-        plt.close(fig)
+            plt.close(fig)
 
     else:
 
         st.info(
-            "Correlation data could not be displayed."
+            "Correlation data is available but "
+            "could not be displayed."
         )
 
 else:
@@ -788,8 +1065,7 @@ if describe_data:
 
         st.dataframe(
             describe_df,
-            use_container_width=True,
-            hide_index=True
+            use_container_width=True
         )
 
     except Exception:
@@ -815,7 +1091,7 @@ if cleaning_report:
 
 
 # ============================================================
-# ASK AI
+# ASK AI ABOUT DATASET
 # ============================================================
 
 if history_id:
@@ -844,6 +1120,12 @@ if history_id:
 
         else:
 
+            token = st.session_state["token"]
+
+            headers = {
+                "Authorization": f"Bearer {token}"
+            }
+
             payload = {
                 "history_id": history_id,
                 "question": question
@@ -857,6 +1139,7 @@ if history_id:
 
                     response = requests.post(
                         f"{API_URL}/ask",
+                        headers=headers,
                         json=payload,
                         timeout=60
                     )
@@ -867,7 +1150,7 @@ if history_id:
                     answer = response.json()
 
                     st.success(
-                        "🤖 AI Answer"
+                        "AI Answer"
                     )
 
                     st.write(

@@ -2,14 +2,17 @@ import streamlit as st
 import requests
 import pandas as pd
 import matplotlib.pyplot as plt
+import os
 
 
 # ============================================================
 # CONFIG
 # ============================================================
-import os
 
-API_URL = os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
+API_URL = os.getenv(
+    "BACKEND_URL",
+    "http://127.0.0.1:8000"
+)
 
 st.set_page_config(
     page_title="AI Dataset Storyteller",
@@ -31,84 +34,264 @@ if "token" not in st.session_state:
 if "result" not in st.session_state:
     st.session_state["result"] = None
 
+if "user_email" not in st.session_state:
+    st.session_state["user_email"] = None
+
 
 # ============================================================
 # HEADER
 # ============================================================
 
 st.title("📊 AI Dataset Storyteller")
+
 st.caption(
     "Upload a dataset and let AI turn it into an understandable story."
 )
 
 
 # ============================================================
-# SIDEBAR LOGIN
+# SIDEBAR ACCOUNT
 # ============================================================
 
 st.sidebar.header("🔐 Account")
 
-email = st.sidebar.text_input(
-    "Email"
-)
 
-password = st.sidebar.text_input(
-    "Password",
-    type="password"
-)
+# ============================================================
+# NOT LOGGED IN
+# ============================================================
+
+if not st.session_state["logged_in"]:
+
+    account_mode = st.sidebar.radio(
+        "Choose an option",
+        ["Login", "Sign Up"]
+    )
 
 
-if st.sidebar.button("Login"):
+    # ========================================================
+    # LOGIN
+    # ========================================================
 
-    try:
+    if account_mode == "Login":
 
-        response = requests.post(
-            f"{API_URL}/login",
-            data={
-                "username": email,
-                "password": password
-            }
+        st.sidebar.subheader("Login")
+
+        email = st.sidebar.text_input(
+            "Email",
+            key="login_email"
         )
 
-        if response.status_code == 200:
-
-            data = response.json()
-
-            st.session_state["token"] = (
-                data["access_token"]
-            )
-
-            st.session_state["logged_in"] = True
-
-            st.sidebar.success(
-                "Login successful!"
-            )
-
-            st.rerun()
-
-        else:
-
-            st.sidebar.error(
-                "Incorrect email or password."
-            )
-
-    except requests.exceptions.ConnectionError:
-
-        st.sidebar.error(
-            "FastAPI server is not running."
+        password = st.sidebar.text_input(
+            "Password",
+            type="password",
+            key="login_password"
         )
+
+        if st.sidebar.button(
+            "Login",
+            type="primary"
+        ):
+
+            if not email or not password:
+
+                st.sidebar.warning(
+                    "Please enter your email and password."
+                )
+
+            else:
+
+                try:
+
+                    response = requests.post(
+                        f"{API_URL}/login",
+                        data={
+                            "username": email,
+                            "password": password
+                        },
+                        timeout=30
+                    )
+
+                    if response.status_code == 200:
+
+                        data = response.json()
+
+                        st.session_state["token"] = (
+                            data["access_token"]
+                        )
+
+                        st.session_state["logged_in"] = True
+
+                        st.session_state["user_email"] = email
+
+                        st.sidebar.success(
+                            "Login successful!"
+                        )
+
+                        st.rerun()
+
+                    else:
+
+                        try:
+
+                            error_detail = response.json().get(
+                                "detail",
+                                "Incorrect email or password."
+                            )
+
+                        except Exception:
+
+                            error_detail = (
+                                "Incorrect email or password."
+                            )
+
+                        st.sidebar.error(
+                            error_detail
+                        )
+
+                except requests.exceptions.ConnectionError:
+
+                    st.sidebar.error(
+                        "Could not connect to FastAPI."
+                    )
+
+                except requests.exceptions.Timeout:
+
+                    st.sidebar.error(
+                        "Backend request timed out."
+                    )
+
+                except Exception as e:
+
+                    st.sidebar.error(
+                        f"Login failed: {e}"
+                    )
+
+
+    # ========================================================
+    # SIGN UP
+    # ========================================================
+
+    else:
+
+        st.sidebar.subheader("Create Account")
+
+        signup_email = st.sidebar.text_input(
+            "Email",
+            key="signup_email"
+        )
+
+        signup_password = st.sidebar.text_input(
+            "Password",
+            type="password",
+            key="signup_password"
+        )
+
+        confirm_password = st.sidebar.text_input(
+            "Confirm Password",
+            type="password",
+            key="confirm_password"
+        )
+
+        if st.sidebar.button(
+            "Create Account",
+            type="primary"
+        ):
+
+            if not signup_email or not signup_password:
+
+                st.sidebar.warning(
+                    "Please enter your email and password."
+                )
+
+            elif signup_password != confirm_password:
+
+                st.sidebar.error(
+                    "Passwords do not match."
+                )
+
+            elif len(signup_password) < 6:
+
+                st.sidebar.error(
+                    "Password must contain at least 6 characters."
+                )
+
+            else:
+
+                try:
+
+                    response = requests.post(
+                        f"{API_URL}/signup",
+                        params={
+                            "email": signup_email,
+                            "password": signup_password
+                        },
+                        timeout=30
+                    )
+
+                    if response.status_code == 201:
+
+                        st.sidebar.success(
+                            "Account created successfully!"
+                        )
+
+                        st.sidebar.info(
+                            "Now switch to Login."
+                        )
+
+                    else:
+
+                        try:
+
+                            error_detail = response.json().get(
+                                "detail",
+                                "Signup failed."
+                            )
+
+                        except Exception:
+
+                            error_detail = "Signup failed."
+
+                        st.sidebar.error(
+                            error_detail
+                        )
+
+                except requests.exceptions.ConnectionError:
+
+                    st.sidebar.error(
+                        "Could not connect to FastAPI."
+                    )
+
+                except requests.exceptions.Timeout:
+
+                    st.sidebar.error(
+                        "Backend request timed out."
+                    )
+
+                except Exception as e:
+
+                    st.sidebar.error(
+                        f"Signup failed: {e}"
+                    )
 
 
 # ============================================================
-# LOGOUT
+# LOGGED IN
 # ============================================================
 
 if st.session_state["logged_in"]:
 
+    st.sidebar.success(
+        f"Logged in as {st.session_state['user_email']}"
+    )
+
     if st.sidebar.button("Logout"):
 
         st.session_state["logged_in"] = False
+
         st.session_state["token"] = None
+
+        st.session_state["user_email"] = None
+
         st.session_state["result"] = None
 
         st.rerun()
@@ -121,7 +304,8 @@ if st.session_state["logged_in"]:
 if not st.session_state["logged_in"]:
 
     st.info(
-        "👈 Login from the sidebar to analyze a dataset."
+        "👈 Login or create an account from the sidebar "
+        "to analyze a dataset."
     )
 
     st.stop()
@@ -178,7 +362,8 @@ if uploaded_file is not None:
                 response = requests.post(
                     f"{API_URL}/upload",
                     headers=headers,
-                    files=files
+                    files=files,
+                    timeout=120
                 )
 
             if response.status_code == 200:
@@ -200,8 +385,13 @@ if uploaded_file is not None:
         except requests.exceptions.ConnectionError:
 
             st.error(
-                "Could not connect to FastAPI. "
-                "Make sure the server is running."
+                "Could not connect to FastAPI."
+            )
+
+        except requests.exceptions.Timeout:
+
+            st.error(
+                "The analysis request timed out."
             )
 
         except Exception as e:
@@ -215,9 +405,7 @@ if uploaded_file is not None:
 # GET RESULT
 # ============================================================
 
-result = st.session_state.get(
-    "result"
-)
+result = st.session_state.get("result")
 
 
 if result is None:
@@ -316,13 +504,8 @@ st.divider()
 
 st.header("📊 Dataset Overview")
 
-
 col1, col2, col3, col4 = st.columns(4)
 
-
-# ------------------------------------------------------------
-# ROWS
-# ------------------------------------------------------------
 
 with col1:
 
@@ -332,10 +515,6 @@ with col1:
     )
 
 
-# ------------------------------------------------------------
-# COLUMNS
-# ------------------------------------------------------------
-
 with col2:
 
     st.metric(
@@ -344,16 +523,9 @@ with col2:
     )
 
 
-# ------------------------------------------------------------
-# ANOMALIES
-# ------------------------------------------------------------
-
 with col3:
 
-    if isinstance(
-        anomalies,
-        dict
-    ):
+    if isinstance(anomalies, dict):
 
         anomaly_count = anomalies.get(
             "anomaly_count",
@@ -369,10 +541,6 @@ with col3:
         anomaly_count
     )
 
-
-# ------------------------------------------------------------
-# MISSING VALUES
-# ------------------------------------------------------------
 
 with col4:
 
@@ -428,6 +596,7 @@ if column_names:
 st.divider()
 
 st.header("🤖 AI Dataset Story")
+
 
 if ai_narrative:
 
@@ -535,7 +704,6 @@ if correlation:
                 values,
                 dict
             ):
-
                 continue
 
             for column2, value in values.items():
@@ -597,19 +765,18 @@ if correlation:
 
         st.dataframe(
             correlation_df,
-            use_container_width="strech",
+            use_container_width=True,
             hide_index=True
         )
 
 
-        # --------------------------------------------------------
-        # CORRELATION BAR CHART
-        # --------------------------------------------------------
-
         if len(final_correlations) > 0:
 
             chart_df = correlation_df.head(
-                min(10, len(correlation_df))
+                min(
+                    10,
+                    len(correlation_df)
+                )
             ).copy()
 
             chart_df["Relationship"] = (
@@ -674,7 +841,6 @@ if categorical_summary:
     st.divider()
 
     st.header("🏷️ Categorical Insights")
-
 
     for column, data in categorical_summary.items():
 
@@ -824,7 +990,6 @@ if group_analysis:
 
     st.header("🌎 Group Analysis")
 
-
     for column, groups in group_analysis.items():
 
         st.subheader(
@@ -871,7 +1036,7 @@ if group_analysis:
 
                 st.dataframe(
                     pd.DataFrame(rows),
-                    use_container_width="strech",
+                    use_container_width=True,
                     hide_index=True
                 )
 
@@ -900,7 +1065,7 @@ if describe_data:
 
         st.dataframe(
             describe_df,
-            use_container_width="strech"
+            use_container_width=True
         )
 
     except Exception:
@@ -937,7 +1102,9 @@ if history_id:
 
     question = st.text_input(
         "Ask a question about this dataset",
-        placeholder="Example: Which variables are most strongly related?"
+        placeholder=(
+            "Example: Which variables are most strongly related?"
+        )
     )
 
 
@@ -973,7 +1140,8 @@ if history_id:
                     response = requests.post(
                         f"{API_URL}/ask",
                         headers=headers,
-                        json=payload
+                        json=payload,
+                        timeout=60
                     )
 
 
@@ -1003,4 +1171,16 @@ if history_id:
 
                 st.error(
                     "Could not connect to FastAPI."
+                )
+
+            except requests.exceptions.Timeout:
+
+                st.error(
+                    "The AI request timed out."
+                )
+
+            except Exception as e:
+
+                st.error(
+                    f"Something went wrong: {e}"
                 )

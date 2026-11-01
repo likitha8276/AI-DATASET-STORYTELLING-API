@@ -1,165 +1,164 @@
-<h1 align="center">AI-Based Lost & Found System</h1>
+# DataSense: AI Dataset Storytelling API
 
-<p align="center">
-  Semantic + visual matching of lost and found items using MPNet and CLIP embeddings.<br>
-  No keyword search. No generative AI in the matching path.
-</p>
+![Python](https://img.shields.io/badge/Python-3.13-blue)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688)
+![scikit-learn](https://img.shields.io/badge/scikit--learn-Isolation%20Forest-orange)
+![Gemini](https://img.shields.io/badge/Gemini-API-4285F4)
+![Auth](https://img.shields.io/badge/Auth-JWT-black)
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white" alt="Python">
-  <img src="https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white" alt="FastAPI">
-  <img src="https://img.shields.io/badge/MPNet-sentence--transformers-orange" alt="MPNet">
-  <img src="https://img.shields.io/badge/CLIP-ViT--B%2F32-blueviolet" alt="CLIP">
-  <img src="https://img.shields.io/badge/Status-Phase%201%20complete-brightgreen" alt="Status">
-</p>
+Upload a CSV, get back a cleaning report, statistics, anomaly flags, and a plain-English narrative.
 
----
+**Core idea:** the LLM never sees raw rows. Cleaning, stats, correlations, and anomaly detection are deterministic Python. Gemini only receives the computed summary and writes prose. Remove the Gemini call and the API still returns a full analysis with a rule-based summary.
 
-## Why this exists
+<!-- Add a screenshot or GIF of the /docs page or Streamlit dashboard here:
+![demo](docs/demo.png) -->
 
-Lost-and-found boards rely on keyword search, so "red purse" never finds "red bag", and a photo can't be searched at all. This system embeds every report into vector space and matches by meaning, so different wording and mixed text/photo reports still find each other.
+## Contents
 
-**Design constraint:** matching is 100% deterministic embedding similarity. No LLM decides matches, so every result is explainable: *"matched because cosine similarity was 0.78."*
+- [Features](#features)
+- [Architecture](#architecture)
+- [Quick start](#quick-start)
+- [API reference](#api-reference)
+- [Example](#example)
+- [Design decisions](#design-decisions)
+- [Limitations](#limitations)
+- [Roadmap](#roadmap)
 
 ## Features
 
-- Submit **lost** or **found** reports with a text description and an optional photo
-- **Semantic text matching** with MPNet (`all-mpnet-base-v2`)
-- **Cross-modal matching** with CLIP: a text-only lost report can match a found item that only has a photo, and vice versa
-- Matches only against the **opposite** category, ranked by similarity score
-- Auto-generated Swagger docs at `/docs`
+- **Transparent cleaning:** drops duplicates, imputes missing values (median for numeric, mode for categorical), and reports before/after counts instead of cleaning silently
+- **Stats and correlations:** `describe()` plus strongest-pair correlation, guarded for edge cases (fewer than 2 numeric columns, all-NaN matrix)
+- **Dual anomaly detection:** Isolation Forest plus linear-regression residuals, ranked by severity via `decision_function()`
+- **LLM narrative with fallback:** Gemini turns the summary into prose; any failure returns a rule-based summary and sets `used_fallback: true`
+- **`/ask` endpoint:** plain-English questions about your data, grounded in computed stats
+- **JWT auth** with per-user upload history
+- **Streamlit dashboard** on top of the API
 
-## How it works
+## Architecture
 
 ```
- Submit item (text + optional photo)
-            |
-            v
- +---------------------------+
- |  FastAPI  POST /items     |
- +---------------------------+
-            |
-   +--------+---------+
-   v                  v
- MPNet text       CLIP text + CLIP image
- embedding        embeddings (shared space)
-   |                  |
-   +--------+---------+
-            v
- Cosine similarity vs every item in the opposite category
-            |
-            v
- Score >= 0.6  ->  returned as a match, sorted by score
+Client (Swagger / Streamlit)
+        |
+        v
+FastAPI
+ |-- Auth: /signup, /login (JWT, bcrypt)
+ |-- API: /upload, /history, /ask
+ |
+ |-- Core engine (local, deterministic)
+ |     clean -> describe -> correlate -> anomaly detection
+ |
+ |-- Gemini (summary in, prose out)
+ |     on failure -> rule-based fallback
+ |
+ v
+SQLite via SQLAlchemy (users, upload history)
 ```
 
-### Scoring logic
-
-| Lost item | Found item | Signals used |
-|---|---|---|
-| text | text | MPNet text vs text |
-| text + photo | text + photo | MPNet text (0.6) + CLIP image vs image (0.4) |
-| text | text + photo | MPNet text (0.6) + CLIP text vs photo (0.4) |
-| text + photo | text | MPNet text (0.6) + CLIP photo vs text (0.4) |
-
-Why CLIP and not a plain CNN classifier: CLIP gives a joint text-image embedding space, so a photo can be compared directly to a text description.
+```
+.
+├── app.py            # routes + analysis pipeline
+├── auth.py           # hashing, JWT, get_current_user
+├── database.py       # engine, session, User + UploadHistory models
+├── requirements.txt
+├── .env.example
+└── README.md
+```
 
 ## Quick start
 
 ```bash
-git clone https://github.com/likitha8276/ai-lost-and-found.git
-cd ai-lost-and-found
-python -m venv venv
-venv\Scripts\activate          # macOS/Linux: source venv/bin/activate
+git clone https://github.com/likitha8276/ai-dataset-storytelling-api.git
+cd ai-dataset-storytelling-api
+python -m venv .venv
+.venv\Scripts\activate            # Windows
+# source .venv/bin/activate       # macOS/Linux
 pip install -r requirements.txt
-uvicorn main:app
+cp .env.example .env              # then fill in your values
 ```
 
-Open **http://127.0.0.1:8000/docs**. The first run downloads about 1 GB of model weights from Hugging Face.
+`.env`:
 
-## API example
+```
+DATABASE_URL=sqlite:///./dataset_storytelling.db
+GEMINI_API_KEY=your_key
+SECRET_KEY=<python -c "import secrets; print(secrets.token_hex(32))">
+```
 
-**Request**: `POST /items` (multipart form)
+Run:
 
-| Field | Type | Required |
-|---|---|---|
-| `item_type` | `lost` or `found` | yes |
-| `description` | string | yes |
-| `image` | file | no |
+```bash
+python -m fastapi dev app.py
+```
 
-**Response**
+Open http://127.0.0.1:8000/docs, then: `/signup` -> `/login` -> copy `access_token` -> **Authorize** -> `/upload`.
+
+Dashboard: `streamlit run <your_dashboard_file>.py`
+
+## API reference
+
+| Method | Route | Auth | Purpose |
+|---|---|---|---|
+| POST | `/signup` | no | Create account |
+| POST | `/login` | no | OAuth2 form login, returns JWT |
+| POST | `/upload` | yes | Upload CSV, get full analysis |
+| GET | `/history` | yes | Your past uploads |
+| POST | `/ask` | yes | Ask a question about your data |
+
+## Example
+
+```bash
+# log in (username = email)
+curl -X POST http://127.0.0.1:8000/login \
+  -d "username=you@example.com&password=yourpassword"
+
+# upload
+curl -X POST http://127.0.0.1:8000/upload \
+  -H "Authorization: Bearer <access_token>" \
+  -F "file=@data.csv"
+```
+
+Abridged response from a real 9,555-row, 14-column test file:
 
 ```json
 {
-  "item_id": 2,
-  "item_type": "lost",
-  "description": "red purse",
-  "matches": [
-    {
-      "matched_item_id": 1,
-      "matched_description": "red bag",
-      "similarity_score": 0.7813
-    }
-  ]
+  "num_rows": 9555,
+  "num_columns": 14,
+  "cleaning_report": {
+    "missing_values_before": { "Data_value": 45, "Suppressed": 9540, "Series_title_5": 9555 },
+    "duplicate_rows_removed": 0
+  },
+  "fallback_summary": "The strongest relationship found was between Period and Data_value, with a correlation of 0.11.",
+  "anomalies": { "anomaly_count": 3242, "anomaly_percentage": 33.93 },
+  "ai_narrative": "This dataset contains 9,555 rows and 14 columns with no duplicate rows ...",
+  "used_fallback": false,
+  "history_id": 3
 }
 ```
 
-## Evaluation
+## Design decisions
 
-| Pair | Cosine score | Match (>= 0.6) |
-|---|---|---|
-| "blue water bottle" vs "blue coloured bottle for water" | 0.928 | Yes |
-| "red handbag lost near library" vs "red color bag found near library" | 0.817 | Yes |
-| "red bag" vs "red purse" | 0.781 | Yes |
-| "red bag" vs "red purse missing near library" | 0.432 | No |
-| "black wallet with cards" vs "found a red backpack" | 0.216 | No |
-| "blue umbrella found in cafeteria" vs "red bag" | _fill in_ | No |
-| Text-only vs photo (cross-modal) | _fill in_ | _fill in_ |
+- **Summary to the LLM, not rows:** cheaper, no token ceiling on dataset size, no raw-data leakage, and every number in the narrative traces to computed output
+- **Fallback on any Gemini exception:** the API stays up when the AI service doesn't, and `used_fallback` makes it visible
+- **Median/mode imputation:** simple and explainable, though not ideal for skewed or multimodal columns
+- **SQLite for local dev:** zero config; moving to PostgreSQL is a `DATABASE_URL` change because everything goes through SQLAlchemy
+- **Per-request DB sessions** via `Depends(get_db)` rather than one shared session
 
-### Threshold: 0.6
+**Built myself:** cleaning pipeline and report, correlation guards, dual anomaly detection and ranking, fallback, auth and per-user history, prompt construction.
+**Integrated:** Gemini, scikit-learn's Isolation Forest, bcrypt/JWT libraries.
 
-True matches scored 0.78-0.93 and unrelated pairs scored about 0.2, so 0.6 sits in the gap between them. A false positive costs a user a pointless contact exchange. A false negative means an item is never recovered. That asymmetry is why the threshold leans toward recall without letting unrelated items through.
+## Limitations
 
-_Fill in: at 0.5, the umbrella pair [did / did not] false-positive._
-
-### Known limitation: sentence dilution
-
-"red bag" vs "red purse" scores 0.78, but adding context ("red purse missing near library") drops it to 0.43. Sentence embeddings encode the whole sentence, so filler words pull the vector away from the core object.
-
-**Planned fix:** extract the core noun phrase (object, color, brand) before embedding, or embed object and context separately and weight the object higher.
-
-## Project structure
-
-```
-.
-├── main.py            # FastAPI app, POST /items endpoint
-├── embeddings.py      # MPNet text, CLIP text, CLIP image encoders
-├── matching.py        # cosine similarity + multimodal score combination
-├── storage.py         # in-memory item store (Phase 1)
-├── models.py          # Pydantic request/response schemas
-├── test_matching.py   # hand-picked pair tests
-└── requirements.txt
-```
-
-## Pre-trained vs built
-
-- **Pre-trained:** MPNet and CLIP model weights.
-- **Built by me:** the API service, embedding pipeline, cross-modal scoring and weighting, threshold tuning, and the labeled evaluation pairs.
-
-## Tradeoffs
-
-- Comparison is brute-force, O(n) per submission. Fine at campus scale. At larger scale the next step is `pgvector` or FAISS.
-- Phase 1 storage is in memory, so a restart clears all items.
-- The 0.6 / 0.4 weights are hand-chosen, not learned.
-- Cold start: with no opposite-category items, `matches` is empty and the item waits for a counterpart.
+- Fully-null columns are reported but not dropped
+- 33.93% anomaly rate on the test file suggests `contamination` needs per-dataset tuning
+- Frontend misreads `$` in narratives as LaTeX math delimiters
+- No rate limiting, file size cap, or refresh tokens
+- SQLite is single-writer, so not for concurrent production load
 
 ## Roadmap
 
-- [x] **Phase 1:** embedding + cosine similarity matching pipeline
-- [ ] **Phase 2:** PostgreSQL persistence, JWT auth, user dashboard, admin moderation
-- [ ] **Phase 3:** pgvector native search, Redis caching, match notifications
-- [ ] Labeled evaluation set (40-60 items) with precision / recall / F1
-
-## Author
-
-**Likitha**: B.Tech CSE (Data Science), VIT-AP University
-[GitHub](https://github.com/likitha8276)
+- [ ] Tune or expose `contamination`; drop or flag fully-null columns
+- [ ] Redis cache for repeated `/ask` queries
+- [ ] PostgreSQL + Alembic migrations
+- [ ] Pytest coverage for cleaning and correlation
+- [ ] Dockerfile
+- [ ] Pydantic body for `/signup` instead of query params
